@@ -5,12 +5,13 @@ import { percentageParts } from "./colors.js";
 const flatten = (text) => percentageParts(text).map(({ text: part }) => part).join("");
 
 test("each value in compact 5h:W:M triplets uses strict 10/30 thresholds", () => {
-  const bar = "GO 9:10:29 · CH.UL 30:-:0! · PP ?:?:?";
+  const bar = "GO 9:10:29  CH.UL 30:-:0~  PP ?:?:?  AA 8:20:31";
   const parts = percentageParts(bar);
   assert.equal(flatten(bar), bar, "formatting must not rewrite text");
   assert.deepEqual(parts.filter(({ text }) => /^\d+$/.test(text)).map(({ text, color }) => [text, color]), [
     ["9", "#ff6b6b"], ["10", "#facc15"], ["29", "#facc15"],
     ["30", undefined], ["0", "#ff6b6b"],
+    ["8", "#ff6b6b"], ["20", "#facc15"], ["31", undefined],
   ]);
 });
 

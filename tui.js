@@ -1,7 +1,7 @@
 // Solid and OpenTUI are provided by the OpenCode host, not bundled here.
 import { jsx } from "@opentui/solid/jsx-runtime";
 import { createSignal, For } from "solid-js";
-import { compactLine, dashboardLines } from "./model.js";
+import { compactGroups, dashboardLines } from "./model.js";
 import { percentageParts } from "./colors.js";
 import { loadConfig } from "./config.js";
 import { createCollectors } from "./collectors.js";
@@ -47,10 +47,10 @@ export default {
         before: slot,
         render: (input) => slot === "prompt.footer" && !input.sessionID ? null : jsx("box", {
           flexDirection: "row", flexWrap: "wrap", onMouseDown: click(open),
-          children: compactLine(go, cpa).split(" · ").map((part, index) =>
+          children: compactGroups(go, cpa).map((part, index) =>
             jsx("text", {
               fg: muted, wrapMode: "none", selectable: false, flexShrink: 0,
-              children: colored(`${index ? " · " : ""}${part}`),
+              children: colored(`${index ? "  " : ""}${part}`),
             })),
         }),
       }));

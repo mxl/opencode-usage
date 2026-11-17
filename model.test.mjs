@@ -38,11 +38,11 @@ test("unique labels resolve identical local names and reserve GO", () => {
 });
 
 test("bar uses fixed 5h:W:M triplets and dashes for absent windows", () => {
-  assert.equal(compactLine(go, cpa), "GO 14:59:36 · AD 18:87:- · CH -:-:- · CH.TW -:-:-");
-  assert.equal(compactLine({ ok: true, rolling: { limited: true, left: 0 } }, { ok: true, accounts: [] }), "GO 0:-:- · CPA empty");
-  assert.equal(compactLine({ ok: true, weekly: { left: 59 } }, { ok: true, accounts: [] }), "GO -:59:- · CPA empty");
-  assert.equal(compactLine({ ok: true }, { ok: true, accounts: [{ account: "failed@example.org", quotaError: "usage HTTP 403" }] }), "GO -:-:- · FA ?:?:?");
-  assert.equal(compactLine({ ok: false }, { ok: false }), "GO ?:?:? · CPA ?");
+  assert.equal(compactLine(go, cpa), "GO 14:59:36  AD 18:87:-  CH -:-:-  CH.TW -:-:-");
+  assert.equal(compactLine({ ok: true, rolling: { limited: true, left: 0 } }, { ok: true, accounts: [] }), "GO 0:-:-  CPA empty");
+  assert.equal(compactLine({ ok: true, weekly: { left: 59 } }, { ok: true, accounts: [] }), "GO -:59:-  CPA empty");
+  assert.equal(compactLine({ ok: true }, { ok: true, accounts: [{ account: "failed@example.org", quotaError: "usage HTTP 403" }] }), "GO -:-:-  FA ?:?:?");
+  assert.equal(compactLine({ ok: false }, { ok: false }), "GO ?:?:?  CPA ?");
 });
 
 test("compact status omits exclamation marks while dashboard spells out restriction causes", () => {
@@ -58,7 +58,7 @@ test("compact status omits exclamation marks while dashboard spells out restrict
   };
   const cpaLimited = { ok: true, accounts: [account] };
   const compact = compactLine(goLimited, cpaLimited);
-  assert.equal(compact, "GO 0:-:- · BL 0:-:-");
+  assert.equal(compact, "GO 0:-:-  BL 0:-:-");
   assert.ok(!compact.includes("!"));
   const dashboard = dashboardLines(goLimited, cpaLimited).join("\\n");
   assert.ok(!dashboard.includes("!"));

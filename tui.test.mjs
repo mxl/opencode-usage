@@ -26,12 +26,12 @@ test("click and command open dashboard; back preserves session; refresh and clea
       if (url.includes('/requests/api-call')) {
         const request = JSON.parse(options.body);
         assert.equal(request.method, 'GET');
-        assert.equal(request.authIndex, 'test-index');
+        assert.ok(['test-index', 'other-index'].includes(request.authIndex));
         assert.equal(request.header.Authorization, 'Bearer $TOKEN$');
-        return { ok: true, json: async () => ({ status_code: 200, body: JSON.stringify({rate_limit:{primary_window:{used_percent:12,limit_window_seconds:18000}}}) }) };
+        return { ok: true, json: async () => ({ status_code: 200, body: JSON.stringify({rate_limit:{primary_window:{used_percent:request.authIndex === 'test-index' ? 95 : 12,limit_window_seconds:18000}}}) }) };
       }
       return { ok: true, json: async () => url.includes('/credentials')
-        ? { files: [{ account: 'test@example.org', provider: 'codex', auth_index: 'test-index', disabled: false, quota: { signals: {} } }] }
+        ? { files: [{ account: 'test@example.org', provider: 'codex', auth_index: 'test-index', disabled: false, quota: { signals: {} } }, { account: 'other@example.org', provider: 'codex', auth_index: 'other-index', disabled: false, quota: { signals: {} } }] }
         : { usage: { rolling: { percent: 20, resetsAt: '2030-01-01T00:00:00Z' } } } };
     },
   });
@@ -55,6 +55,11 @@ test("click and command open dashboard; back preserves session; refresh and clea
   const home = slots.findLast(({ claim }) => claim.before === 'home.footer');
   const bar = home.claim.render({});
   assert.ok(bar.props.children.flatMap((child) => child.props.children.map((span) => span.props.children)).join('').includes('GO 80:-:-'));
+  assert.equal(bar.props.children.length, 3, 'each account remains a separate wrapping group');
+  const lastAccount = bar.props.children[2].props.children;
+  assert.equal(lastAccount.map((span) => span.props.children).join(''), '  TE 5:-:-');
+  assert.equal(lastAccount.find((span) => span.props.children === '5').props.style.fg, '#ff6b6b');
+  assert.equal(bar.props.flexWrap, 'wrap');
   const click = bar.props.onMouseDown;
   click({ button: 2 });
   assert.equal(route.type, 'session');
@@ -72,10 +77,10 @@ test("click and command open dashboard; back preserves session; refresh and clea
   commands.find(({bind}) => bind === 'r').run();
   commands.find(({bind}) => bind === 'r').run();
   await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(requests, 6, 'concurrent refreshes should coalesce');
+  assert.equal(requests, 8, 'concurrent refreshes should coalesce');
   const rows = page.props.children[2].props.children.props.each;
   assert.ok(rows.some((row) => row.includes('test@example.org')));
-  assert.ok(rows.some((row) => row.includes('5h:88%')));
+  assert.ok(rows.some((row) => row.includes('5h:5%')));
   assert.ok(rows.some((row) => row.includes('Source: live usage endpoint')));
   dispose();
   assert.ok(slots.every(({removed}) => removed));

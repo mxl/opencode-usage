@@ -69,10 +69,10 @@ function compactTriplet(windows, unknown = false) {
   return `${values["5h"]}:${values.W}:${values.M}`;
 }
 
-export function compactLine(go, cpa) {
+export function compactGroups(go, cpa) {
   const goQuota = go?.ok ? goWindows(go) : [];
   const parts = go?.enabled === false ? [] : [!go ? "GO …" : `GO ${compactTriplet(goQuota, !go.ok)}`];
-  if (cpa?.enabled === false) return parts.join(" · ") || "Limits · /limits setup";
+  if (cpa?.enabled === false) return parts.length ? parts : ["Limits · /limits setup"];
   if (!cpa) parts.push("CPA …");
   else if (!cpa.ok) parts.push("CPA ?");
   else {
@@ -86,7 +86,11 @@ export function compactLine(go, cpa) {
     });
     if (!cpa.accounts.length) parts.push("CPA empty");
   }
-  return parts.join(" · ");
+  return parts;
+}
+
+export function compactLine(go, cpa) {
+  return compactGroups(go, cpa).join("  ");
 }
 
 function cooldownReasonLabel(reason) {

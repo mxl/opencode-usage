@@ -13,7 +13,7 @@ function labeledParts(text) {
 }
 
 export function percentageParts(text) {
-  const triplets = /(^| · )([A-Z][A-Z0-9]*(?:\.[A-Z0-9]+)?) ((?:\d+|-|\?):(?:\d+|-|\?):(?:\d+|-|\?))(~*)/g;
+  const triplets = /(^| {2}| · )([A-Z][A-Z0-9]*(?:\.[A-Z0-9]+)?) ((?:\d+|-|\?):(?:\d+|-|\?):(?:\d+|-|\?))(~*)/g;
   const parts = [];
   let cursor = 0;
   for (const match of text.matchAll(triplets)) {
