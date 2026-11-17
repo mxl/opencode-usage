@@ -1,0 +1,17 @@
+{
+  "name": "opencode-usage",
+  "version": "0.1.0",
+  "description": "Optional read-only OpenCode Go and CLIProxyAPI Codex usage dashboard for OpenCode TUI",
+  "type": "module",
+  "license": "MIT",
+  "author": "Michael Ledin",
+  "repository": { "type": "git", "url": "git+https://github.com/mxl/opencode-usage.git" },
+  "homepage": "https://github.com/mxl/opencode-usage#readme",
+  "bugs": { "url": "https://github.com/mxl/opencode-usage/issues" },
+  "engines": { "node": ">=20" },
+  "exports": { "./tui": "./tui.js" },
+  "files": ["tui.js", "model.js", "colors.js", "quota.js", "config.js", "collectors.js", "config.example.json", "README.md", "LICENSE"],
+  "scripts": { "test": "node --test *.test.mjs" },
+  "peerDependencies": { "@opentui/solid": "*", "solid-js": "^1.9.0" },
+  "peerDependenciesMeta": { "@opentui/solid": { "optional": true }, "solid-js": { "optional": true } }
+}

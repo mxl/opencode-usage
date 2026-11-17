@@ -1,0 +1,6 @@
+{
+  "refreshMs": 60000,
+  "timeoutMs": 8000,
+  "opencodeGo": { "enabled": false },
+  "cliproxyapi": { "enabled": false, "baseUrl": "http://127.0.0.1:4003" }
+}
