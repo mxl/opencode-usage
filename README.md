@@ -69,7 +69,8 @@ Use restrictive permissions, for example `chmod 600` on secret files. Explicit f
 
 Click the bar or run `/limits` for the full dashboard. `Esc` returns to the prior page/session; `R` refreshes.
 
-- Compact values always occupy **5h:W:M** positions: `GO 80:40:-` means 80% five-hour, 40% weekly, no monthly window reported.
+- When space permits, compact values occupy **5h:W:M** positions: `GO 80:40:-` means 80% five-hour, 40% weekly, no monthly window reported. In narrower bars every account instead shows its shortest reported interval, e.g. `GO 80  AA 63`; groups wrap if needed. Longer-window restrictions can be hidden in this view—open the dashboard to see all windows.
+- Account labels are the first two characters before `@`, uppercased, or `?` if empty. Labels can repeat, including `GO`; the dashboard shows full account identities.
 - `-` means absent/not reported; `?` means unknown or unavailable. An enabled source failure is shown without hiding other sources.
 - Each numeric value is independently colored: below 10% red, below 30% yellow, otherwise the theme's normal text color. Account labels remain neutral. No `!` restriction markers are appended.
 - `~` marks captured-header fallback quota, which may be stale. The dashboard explains live/captured sources, restriction causes, quota blocks, cooldowns and resets.

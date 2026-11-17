@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import * as model from "./model.js";
-import { percentageParts } from "./colors.js";
+import { compactPercentageParts, percentageParts } from "./colors.js";
 import { createCollectors } from "./collectors.js";
 import { validateConfig } from "./config.js";
 
@@ -14,11 +14,12 @@ test("click and command open dashboard; back preserves session; refresh and clea
   let registered;
   let routeRemoved = false;
   let requests = 0;
+  let goUsed = 20;
   const context = vm.createContext({
-    ...model, percentageParts, Date, Promise, AbortSignal,
+    ...model, compactPercentageParts, percentageParts, Date, Promise, AbortSignal, queueMicrotask,
     loadConfig: () => ({ config: validateConfig({ opencodeGo: { enabled: true }, cliproxyapi: { enabled: true } }) }),
     createCollectors: (config) => createCollectors(config, { env: { OPENCODE_GO_API_KEY: 'fake-test-key', CLIPROXY_MANAGEMENT_PASSWORD: 'fake-test-key' }, fetch: (...args) => context.fetch(...args) }),
-    jsx: (type, props) => ({ type, props }), For: 'For',
+    jsx: (type, props) => ({ type, props }), For: 'For', onCleanup: () => {},
     createSignal: (initial) => { let value = initial; return [() => value, (next) => { value = next; }]; },
     setInterval: () => ({ unref() {} }), clearInterval() {},
     fetch: async (url, options) => {
@@ -32,7 +33,7 @@ test("click and command open dashboard; back preserves session; refresh and clea
       }
       return { ok: true, json: async () => url.includes('/credentials')
         ? { files: [{ account: 'test@example.org', provider: 'codex', auth_index: 'test-index', disabled: false, quota: { signals: {} } }, { account: 'other@example.org', provider: 'codex', auth_index: 'other-index', disabled: false, quota: { signals: {} } }] }
-        : { usage: { rolling: { percent: 20, resetsAt: '2030-01-01T00:00:00Z' } } } };
+        : { usage: { rolling: { percent: goUsed, resetsAt: '2030-01-01T00:00:00Z' } } } };
     },
   });
   const source = readFileSync(new URL('./tui.js', import.meta.url), 'utf8')
@@ -60,6 +61,18 @@ test("click and command open dashboard; back preserves session; refresh and clea
   assert.equal(lastAccount.map((span) => span.props.children).join(''), '  TE 5:-:-');
   assert.equal(lastAccount.find((span) => span.props.children === '5').props.style.fg, '#ff6b6b');
   assert.equal(bar.props.flexWrap, 'wrap');
+  const slotCount = slots.length;
+  const resize = async (width) => { bar.props.onSizeChange.call({ width }); await new Promise((resolve) => setImmediate(resolve)); };
+  const text = () => bar.props.children.flatMap((child) => child.props.children.map((span) => span.props.children)).join('');
+  const full = text();
+  await resize(full.length - 1);
+  assert.equal(text(), 'GO 80  OT 88  TE 5');
+  assert.equal(bar.props.children[2].props.children.find((span) => span.props.children === '5').props.style.fg, '#ff6b6b');
+  await resize(full.length);
+  assert.equal(text(), full);
+  await resize(1);
+  assert.equal(bar.props.children.length, 3, 'narrow layout retains whole account groups');
+  assert.equal(slots.length, slotCount, 'resizing does not remount slots');
   const click = bar.props.onMouseDown;
   click({ button: 2 });
   assert.equal(route.type, 'session');
@@ -74,10 +87,14 @@ test("click and command open dashboard; back preserves session; refresh and clea
   assert.equal(route.sessionID, 'test-session');
   layers[0].commands[0].run();
   assert.equal(route.type, 'plugin');
+  goUsed = 91;
   commands.find(({bind}) => bind === 'r').run();
   commands.find(({bind}) => bind === 'r').run();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(requests, 8, 'concurrent refreshes should coalesce');
+  assert.equal(slots.length, slotCount, 'refreshing does not remount slots');
+  assert.equal(text(), 'GO 9  OT 88  TE 5', 'mounted bar reflects fresh quota at the same width');
+  assert.equal(bar.props.children[0].props.children.find((span) => span.props.children === '9').props.style.fg, '#ff6b6b');
   const rows = page.props.children[2].props.children.props.each;
   assert.ok(rows.some((row) => row.includes('test@example.org')));
   assert.ok(rows.some((row) => row.includes('5h:5%')));

@@ -27,24 +27,13 @@ export function codexWindows(signals = {}) {
       : minutes % 1440 === 0 ? `${minutes / 1440}d`
       : minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`;
     const reset = Number(signals[`${prefix}Reset-At`]);
-    return [{ label, left: percentLeft(signals[`${prefix}Used-Percent`]),
+    return [{ label, durationSeconds: minutes * 60, left: percentLeft(signals[`${prefix}Used-Percent`]),
       resetsAt: Number.isFinite(reset) && reset > 0 ? new Date(reset * 1000).toISOString() : undefined }];
   });
 }
 
 export function accountLabels(accounts) {
-  const used = new Set(["GO"]);
-  return accounts.map((account) => {
-    const [local, domain = ""] = account.account.split("@");
-    const base = local.slice(0, 2).toUpperCase() || "?";
-    let label = base;
-    if (used.has(label)) label = `${base}.${domain.split(".")[0].slice(0, 2).toUpperCase()}`;
-    let suffix = 2;
-    const candidate = label;
-    while (used.has(label)) label = `${candidate}${suffix++}`;
-    used.add(label);
-    return label;
-  });
+  return accounts.map((account) => account.account.split("@")[0].slice(0, 2).toUpperCase() || "?");
 }
 
 export function goWindows(go) {
@@ -52,7 +41,7 @@ export function goWindows(go) {
     .flatMap(([label, window]) => window ? [{ label, ...window }] : []);
 }
 
-// The compact bar is always 5h:W:M; dashboard labels and percent signs stay.
+// Dashboard labels and percent signs stay even when the bar becomes shorter.
 function windowText(window, suffix = "") {
   return `${window.label}:${window.left === undefined ? "?" : `${window.left}${suffix}`}`;
 }
@@ -69,9 +58,24 @@ function compactTriplet(windows, unknown = false) {
   return `${values["5h"]}:${values.W}:${values.M}`;
 }
 
-export function compactGroups(go, cpa) {
+function duration(window) {
+  if (Number.isFinite(window.durationSeconds) && window.durationSeconds > 0) return window.durationSeconds;
+  if (window.label === "W") return 7 * 86400;
+  if (window.label === "M") return 30 * 86400;
+  const match = /^(\d+(?:\.\d+)?)(m|h|d)$/.exec(window.label);
+  return match ? Number(match[1]) * { m: 60, h: 3600, d: 86400 }[match[2]] : Infinity;
+}
+
+function shortestValue(windows) {
+  const sorted = windows.map((window) => ({ window, seconds: duration(window) }))
+    .filter(({ seconds }) => Number.isFinite(seconds)).sort((a, b) => a.seconds - b.seconds);
+  const window = sorted[0]?.window;
+  return window?.left === undefined ? "?" : String(window.left);
+}
+
+export function compactGroups(go, cpa, short = false) {
   const goQuota = go?.ok ? goWindows(go) : [];
-  const parts = go?.enabled === false ? [] : [!go ? "GO …" : `GO ${compactTriplet(goQuota, !go.ok)}`];
+  const parts = go?.enabled === false ? [] : [!go ? "GO …" : `GO ${short ? shortestValue(goQuota) : compactTriplet(goQuota, !go.ok)}`];
   if (cpa?.enabled === false) return parts.length ? parts : ["Limits · /limits setup"];
   if (!cpa) parts.push("CPA …");
   else if (!cpa.ok) parts.push("CPA ?");
@@ -80,7 +84,7 @@ export function compactGroups(go, cpa) {
     cpa.accounts.forEach((account, index) => {
       const windows = account.windows ?? codexWindows(account.signals);
       const unknown = Boolean(account.quotaError) && windows.length === 0;
-      const text = compactTriplet(windows, unknown);
+      const text = short ? shortestValue(windows) : compactTriplet(windows, unknown);
       const fallback = account.source === "captured" && windows.length ? "~" : "";
       parts.push(`${labels[index]} ${text}${fallback}`);
     });
@@ -91,6 +95,11 @@ export function compactGroups(go, cpa) {
 
 export function compactLine(go, cpa) {
   return compactGroups(go, cpa).join("  ");
+}
+
+export function adaptiveGroups(go, cpa, width, measure = (text) => text.length) {
+  const full = compactGroups(go, cpa);
+  return width === undefined || measure(full.join("  ")) <= width ? full : compactGroups(go, cpa, true);
 }
 
 function cooldownReasonLabel(reason) {

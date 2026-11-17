@@ -1,8 +1,8 @@
 // Solid and OpenTUI are provided by the OpenCode host, not bundled here.
 import { jsx } from "@opentui/solid/jsx-runtime";
-import { createSignal, For } from "solid-js";
-import { compactGroups, dashboardLines } from "./model.js";
-import { percentageParts } from "./colors.js";
+import { createSignal, For, onCleanup } from "solid-js";
+import { adaptiveGroups, dashboardLines } from "./model.js";
+import { compactPercentageParts, percentageParts } from "./colors.js";
 import { loadConfig } from "./config.js";
 import { createCollectors } from "./collectors.js";
 
@@ -15,7 +15,7 @@ export default {
     const { config, error: configError } = loadConfig();
     const { fetchGo, fetchClipProxy } = createCollectors(config);
     const muted = ctx.theme.text.muted ?? ctx.theme.text.base;
-    const colored = (text) => percentageParts(text).map((part) =>
+    const colored = (text, compact = false) => (compact ? compactPercentageParts(text) : percentageParts(text)).map((part) =>
       jsx("span", { ...(part.color ? { style: { fg: part.color } } : {}), children: part.text }));
     const [state, setState] = createSignal({
       go: config.opencodeGo.enabled ? undefined : { enabled: false },
@@ -42,17 +42,31 @@ export default {
     };
     const mount = () => {
       unmount();
-      const { go, cpa } = state();
       claims = SLOTS.map((slot) => ctx.ui.slot({
         before: slot,
-        render: (input) => slot === "prompt.footer" && !input.sessionID ? null : jsx("box", {
-          flexDirection: "row", flexWrap: "wrap", onMouseDown: click(open),
-          children: compactGroups(go, cpa).map((part, index) =>
-            jsx("text", {
-              fg: muted, wrapMode: "none", selectable: false, flexShrink: 0,
-              children: colored(`${index ? "  " : ""}${part}`),
-            })),
-        }),
+        render: (input) => {
+          if (slot === "prompt.footer" && !input.sessionID) return null;
+          const [width, setWidth] = createSignal(undefined);
+          let active = true;
+          onCleanup(() => { active = false; });
+          return jsx("box", {
+            width: "100%", flexDirection: "row", flexWrap: "wrap", onMouseDown: click(open),
+            onSizeChange: function () {
+              const next = this.width;
+              // Layout callbacks run during a frame; update Solid after it finishes.
+              queueMicrotask(() => { if (active) setWidth(next); });
+            },
+            get children() {
+              const { go, cpa } = state();
+              const measure = typeof Bun !== "undefined" && Bun.stringWidth ? Bun.stringWidth : (text) => text.length;
+              return adaptiveGroups(go, cpa, width(), measure).map((part, index) =>
+                jsx("text", {
+                  fg: muted, wrapMode: "none", selectable: false, flexShrink: 0,
+                  children: colored(`${index ? "  " : ""}${part}`, true),
+                }));
+            },
+          });
+        },
       }));
     };
     const refresh = () => {
@@ -60,7 +74,6 @@ export default {
       pending = Promise.all([fetchGo(), fetchClipProxy()]).then(([go, cpa]) => {
         if (disposed) return;
         setState({ go, cpa, updatedAt: Date.now() });
-        mount();
       }).finally(() => { pending = undefined; });
       return pending;
     };

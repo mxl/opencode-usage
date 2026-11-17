@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chatgptAccountId, parseUsageResponse, quotaRequest } from "./quota.js";
-import { compactLine, dashboardLines } from "./model.js";
+import { adaptiveGroups, compactLine, dashboardLines } from "./model.js";
 
 const envelope = (rate_limit) => ({ status_code: 200, body: JSON.stringify({ plan_type: 'plus', rate_limit }) });
 test('live usage fills both previously unknown accounts with actual duration windows', () => {
@@ -29,6 +29,11 @@ test('monthly duration, missing usage and reset fallback are handled honestly', 
   assert.equal(result.windows[0].resetsAt,'1970-01-01T00:01:00.000Z');
   assert.equal(result.usageLimited,true);
   assert.deepEqual(result.usageLimitReasons,['allowed=false']);
+});
+
+test('short selection uses actual duration even when monthly labels coincide', () => {
+  const result = parseUsageResponse(envelope({ primary_window: { used_percent: 90, limit_window_seconds: 2678400 }, secondary_window: { used_percent: 10, limit_window_seconds: 2419200 } }));
+  assert.equal(adaptiveGroups({ enabled: false }, { ok: true, accounts: [{ account: 'test@example.org', ...result }] }, 1).join(''), 'TE 90');
 });
 
 test('account selection matches UI and token substitution remains server-side', () => {

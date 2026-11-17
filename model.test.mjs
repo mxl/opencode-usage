@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { accountLabels, codexWindows, compactLine, countdown, dashboardLines, percentLeft } from "./model.js";
+import { accountLabels, adaptiveGroups, codexWindows, compactLine, countdown, dashboardLines, percentLeft } from "./model.js";
 
 const signals = {
   "X-Codex-Primary-Window-Minutes": "300",
@@ -31,18 +31,45 @@ test("only real windows appear, with remaining instead of used", () => {
   assert.equal(codexWindows({ "X-Codex-Primary-Window-Minutes": "300" })[0].left, undefined);
 });
 
-test("unique labels resolve identical local names and reserve GO", () => {
-  const labels = accountLabels([...cpa.accounts, { account: "chatgpt@two.com" }, { account: "go@example.org" }]);
-  assert.equal(new Set(labels).size, 5);
-  assert.deepEqual(labels, ["AD", "CH", "CH.TW", "CH.TW2", "GO.EX"]);
+test("labels use the first two local characters without deduplication or reserving GO", () => {
+  const labels = accountLabels([...cpa.accounts, { account: "chatgpt@two.com" }, { account: "go@example.org" },
+    { account: "g@example.org" }, { account: "@example.org" }, { account: "" }]);
+  assert.deepEqual(labels, ["AD", "CH", "CH", "CH", "GO", "G", "?", "?"]);
 });
 
 test("bar uses fixed 5h:W:M triplets and dashes for absent windows", () => {
-  assert.equal(compactLine(go, cpa), "GO 14:59:36  AD 18:87:-  CH -:-:-  CH.TW -:-:-");
+  assert.equal(compactLine(go, cpa), "GO 14:59:36  AD 18:87:-  CH -:-:-  CH -:-:-");
   assert.equal(compactLine({ ok: true, rolling: { limited: true, left: 0 } }, { ok: true, accounts: [] }), "GO 0:-:-  CPA empty");
   assert.equal(compactLine({ ok: true, weekly: { left: 59 } }, { ok: true, accounts: [] }), "GO -:59:-  CPA empty");
   assert.equal(compactLine({ ok: true }, { ok: true, accounts: [{ account: "failed@example.org", quotaError: "usage HTTP 403" }] }), "GO -:-:-  FA ?:?:?");
   assert.equal(compactLine({ ok: false }, { ok: false }), "GO ?:?:?  CPA ?");
+});
+
+test("GO account labels coexist with OpenCode Go in the bar and dashboard", () => {
+  const accounts = { ok: true, accounts: [{ account: "go@example.org", windows: [{ label: "5h", left: 42 }] }] };
+  assert.equal(compactLine(go, accounts), "GO 14:59:36  GO 42:-:-");
+  assert.equal(adaptiveGroups(go, accounts, 1).join("  "), "GO 14  GO 42");
+  assert.ok(dashboardLines(go, accounts).some((line) => line.includes("GO  go@example.org")));
+});
+
+test("adaptive bar switches all accounts at the exact full-line width", () => {
+  const full = compactLine(go, cpa);
+  assert.equal(adaptiveGroups(go, cpa, full.length).join("  "), full);
+  assert.equal(adaptiveGroups(go, cpa, full.length + 1).join("  "), full);
+  assert.equal(adaptiveGroups(go, cpa, full.length - 1).join("  "), "GO 14  AD 18  CH ?  CH ?");
+  assert.equal(adaptiveGroups(go, cpa, 1).length, 4);
+});
+
+test("short bar uses shortest reported interval, not the most restrictive quota", () => {
+  const accounts = { ok: true, accounts: [
+    { account: "weekly@example.org", windows: [{ label: "M", left: 0 }, { label: "W", left: 63 }] },
+    { account: "monthly@example.org", windows: [{ label: "M", left: 100 }], source: "captured" },
+    { account: "other@example.org", windows: [{ label: "W", left: 0 }, { label: "90m", left: 88 }] },
+    { account: "unknown@example.org", windows: [{ label: "5h" }, { label: "W", left: 50 }] },
+  ] };
+  assert.equal(adaptiveGroups({ ok: true, weekly: { left: 72 }, monthly: { left: 0 } }, accounts, 1).join("  "),
+    "GO 72  WE 63  MO 100~  OT 88  UN ?");
+  assert.equal(adaptiveGroups({ enabled: false }, { enabled: false }, 1).join(""), "Limits · /limits setup");
 });
 
 test("compact status omits exclamation marks while dashboard spells out restriction causes", () => {
@@ -79,6 +106,7 @@ test("countdowns carry correctly and do not claim replenishment", () => {
 test("dashboard includes every identity, status, reset and stale-data caveat", () => {
   const text = dashboardLines(go, cpa, Date.now()).join("\n");
   for (const account of cpa.accounts) assert.ok(text.includes(account.account));
+  assert.ok(text.indexOf("CH  chatgpt@one.org") < text.indexOf("CH  chatgpt@two.org"));
   assert.ok(text.includes("[disabled]"));
   assert.ok(text.includes("Remaining quota unavailable"));
   assert.ok(text.includes("may be stale"));

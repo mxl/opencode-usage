@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { percentageParts } from "./colors.js";
+import { compactPercentageParts, percentageParts } from "./colors.js";
 
 const flatten = (text) => percentageParts(text).map(({ text: part }) => part).join("");
 
 test("each value in compact 5h:W:M triplets uses strict 10/30 thresholds", () => {
-  const bar = "GO 9:10:29  CH.UL 30:-:0~  PP ?:?:?  AA 8:20:31";
+  const bar = "GO 9:10:29  CH 30:-:0~  PP ?:?:?  AA 8:20:31";
   const parts = percentageParts(bar);
   assert.equal(flatten(bar), bar, "formatting must not rewrite text");
   assert.deepEqual(parts.filter(({ text }) => /^\d+$/.test(text)).map(({ text, color }) => [text, color]), [
@@ -29,4 +29,14 @@ test("clock times and other numbers are never interpreted as quota triplets", ()
   const parts = percentageParts(clock);
   assert.deepEqual(parts.map(({ color }) => color).filter(Boolean), []);
   assert.equal(flatten(clock), clock);
+});
+
+test("short compact values retain strict thresholds and neutral account labels", () => {
+  for (const [value, color] of [["9", "#ff6b6b"], ["10", "#facc15"], ["29", "#facc15"], ["30", undefined]]) {
+    const parts = compactPercentageParts(`  AA ${value}~`);
+    assert.equal(parts.map((part) => part.text).join(""), `  AA ${value}~`);
+    assert.equal(parts[1].color, color);
+    assert.equal(parts[0].color, undefined);
+    assert.equal(parts[2].color, undefined);
+  }
 });

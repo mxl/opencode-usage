@@ -31,3 +31,15 @@ export function percentageParts(text) {
   parts.push(...labeledParts(text.slice(cursor)));
   return parts;
 }
+
+// The bar supplies a single group here, avoiding accidental coloring of
+// unrelated numbers in dashboard text.
+export function compactPercentageParts(text) {
+  const match = /^( *)([A-Z][A-Z0-9]*(?:\.[A-Z0-9]+)?) (\d+)(~*)$/.exec(text);
+  if (!match) return percentageParts(text);
+  return [
+    { text: `${match[1]}${match[2]} `, color: undefined },
+    { text: match[3], color: colorFor(Number(match[3])) },
+    ...(match[4] ? [{ text: match[4], color: undefined }] : []),
+  ];
+}

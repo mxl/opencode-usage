@@ -44,7 +44,7 @@ export function parseUsageResponse(response, now = Date.now()) {
       if (!Number.isFinite(reset) && relative !== undefined && relative !== null && Number.isFinite(Number(relative))) {
         reset = now + Math.max(0, Number(relative)) * 1000;
       }
-      return [{ label, left: percentLeft(entry.used_percent ?? entry.usedPercent),
+      return [{ label, durationSeconds: seconds, left: percentLeft(entry.used_percent ?? entry.usedPercent),
         resetsAt: Number.isFinite(reset) ? new Date(reset).toISOString() : undefined }];
     });
   const usageLimitReasons = [];
