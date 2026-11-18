@@ -62,7 +62,7 @@ export function createCollectors(config, dependencies = {}) {
       const result = await getJSON(`${base}/v8/management/credentials`, { authorization: `Bearer ${password}` });
       if (result.error) return { ok: false, error: result.error };
       if (!Array.isArray(result.body?.files)) return { ok: false, error: "no account data" };
-      const files = result.body.files.filter((file) => file && (file.provider ?? file.type) === "codex");
+      const files = result.body.files.filter((file) => file && !file.disabled && (file.provider ?? file.type) === "codex");
       const accounts = await mapAccounts(files, async (file) => {
         const account = {
           account: displayText(file.account ?? file.email ?? file.name ?? "?") || "?", status: displayText(file.status),

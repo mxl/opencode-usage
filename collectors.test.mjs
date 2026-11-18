@@ -101,3 +101,21 @@ test("CPA API-call malformed and failed upstream responses never leak bodies", a
     assert.ok(!JSON.stringify(result).includes('private'));
   }
 });
+
+test("CPA excludes disabled accounts without requesting their quota", async () => {
+  const files = [
+    {provider:'codex', account:'active@example.org', auth_index:'active', disabled:false},
+    {provider:'codex', account:'disabled@example.org', auth_index:'disabled', disabled:true},
+  ];
+  const calls = [];
+  const c = createCollectors(enabled({opencodeGo:{enabled:false}}), {env:credentials, fetch:async (url, options) => {
+    if (url.endsWith('/credentials')) return json({files});
+    calls.push(JSON.parse(options.body).authIndex);
+    return json({status_code:200,body:{rate_limit:{primary_window:{limit_window_seconds:18000,used_percent:20}}}});
+  }});
+  const result = await c.fetchClipProxy();
+  assert.deepEqual(result.accounts.map(account => account.account), ['active@example.org']);
+  assert.deepEqual(calls, ['active']);
+  assert.ok(!compactLine({enabled:false}, result).includes('disabled@example.org'));
+  assert.ok(!dashboardLines({enabled:false}, result).some(line => line.includes('disabled@example.org')));
+});
