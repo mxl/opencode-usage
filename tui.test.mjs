@@ -55,6 +55,7 @@ test("click and command open dashboard; back preserves session; refresh and clea
   await new Promise((resolve) => setImmediate(resolve));
   const home = slots.findLast(({ claim }) => claim.before === 'home.footer');
   const bar = home.claim.render({});
+  assert.equal(bar.props.width, undefined, 'bar must not claim the full footer row width');
   assert.ok(bar.props.children.flatMap((child) => child.props.children.map((span) => span.props.children)).join('').includes('GO 80:-:-'));
   assert.equal(bar.props.children.length, 3, 'each account remains a separate wrapping group');
   const lastAccount = bar.props.children[2].props.children;

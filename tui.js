@@ -49,8 +49,12 @@ export default {
           const [width, setWidth] = createSignal(undefined);
           let active = true;
           onCleanup(() => { active = false; });
+          // No width: "100%" here. The footer row is space-between; a
+          // full-width box starves the host's path label and subagent/shell
+          // counters (they shrink, this box does not). Content sizing makes
+          // onSizeChange report the row constraint only when wrapping.
           return jsx("box", {
-            width: "100%", flexDirection: "row", flexWrap: "wrap", onMouseDown: click(open),
+            flexDirection: "row", flexWrap: "wrap", onMouseDown: click(open),
             onSizeChange: function () {
               const next = this.width;
               // Layout callbacks run during a frame; update Solid after it finishes.
