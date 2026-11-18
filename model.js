@@ -102,6 +102,15 @@ export function adaptiveGroups(go, cpa, width, measure = (text) => text.length) 
   return width === undefined || measure(full.join("  ")) <= width ? full : compactGroups(go, cpa, true);
 }
 
+// The host's prompt footer reserves the same share for its own status line
+// (path, subagents, shells): see promptFooterLayout in opencode — the usage
+// bar must fit beside it, not instead of it.
+export function footerAvailableWidth(terminalWidth) {
+  const width = Number(terminalWidth);
+  if (!Number.isFinite(width) || width <= 0) return undefined;
+  return Math.max(0, width - 8 - Math.min(28, Math.floor(width / 2)));
+}
+
 function cooldownReasonLabel(reason) {
   const labels = {
     credential_quota: "credential quota",

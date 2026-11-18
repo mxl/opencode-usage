@@ -1,7 +1,8 @@
 // Solid and OpenTUI are provided by the OpenCode host, not bundled here.
 import { jsx } from "@opentui/solid/jsx-runtime";
-import { createSignal, For, onCleanup } from "solid-js";
-import { adaptiveGroups, dashboardLines } from "./model.js";
+import { useTerminalDimensions } from "@opentui/solid";
+import { createSignal, For } from "solid-js";
+import { adaptiveGroups, dashboardLines, footerAvailableWidth } from "./model.js";
 import { compactPercentageParts, percentageParts } from "./colors.js";
 import { loadConfig } from "./config.js";
 import { createCollectors } from "./collectors.js";
@@ -40,37 +41,35 @@ export default {
       event.stopPropagation?.();
       action();
     };
+    const render = (slot, input) => {
+      // Hooks run unconditionally, before any early return: one mounted
+      // claim's sessionID can change when the user switches sessions.
+      const dimensions = useTerminalDimensions();
+      if (slot === "prompt.footer" && !input.sessionID) return null;
+      // Measure the terminal, never the bar itself: a content-sized box
+      // reporting its own width creates a ratchet (short content → smaller
+      // reported width → short forever). Terminal width is independent of
+      // what we render. Reserving the host's share follows the host's own
+      // prompt-footer layout convention.
+      const measure = typeof Bun !== "undefined" && Bun.stringWidth ? Bun.stringWidth : (text) => text.length;
+      const available = () => footerAvailableWidth(dimensions().width);
+      return jsx("box", {
+        flexDirection: "row", flexWrap: "wrap", onMouseDown: click(open),
+        get children() {
+          const { go, cpa } = state();
+          return adaptiveGroups(go, cpa, available(), measure).map((part, index) =>
+            jsx("text", {
+              fg: muted, wrapMode: "none", selectable: false, flexShrink: 0,
+              children: colored(`${index ? "  " : ""}${part}`, true),
+            }));
+        },
+      });
+    };
     const mount = () => {
       unmount();
       claims = SLOTS.map((slot) => ctx.ui.slot({
         before: slot,
-        render: (input) => {
-          if (slot === "prompt.footer" && !input.sessionID) return null;
-          const [width, setWidth] = createSignal(undefined);
-          let active = true;
-          onCleanup(() => { active = false; });
-          // No width: "100%" here. The footer row is space-between; a
-          // full-width box starves the host's path label and subagent/shell
-          // counters (they shrink, this box does not). Content sizing makes
-          // onSizeChange report the row constraint only when wrapping.
-          return jsx("box", {
-            flexDirection: "row", flexWrap: "wrap", onMouseDown: click(open),
-            onSizeChange: function () {
-              const next = this.width;
-              // Layout callbacks run during a frame; update Solid after it finishes.
-              queueMicrotask(() => { if (active) setWidth(next); });
-            },
-            get children() {
-              const { go, cpa } = state();
-              const measure = typeof Bun !== "undefined" && Bun.stringWidth ? Bun.stringWidth : (text) => text.length;
-              return adaptiveGroups(go, cpa, width(), measure).map((part, index) =>
-                jsx("text", {
-                  fg: muted, wrapMode: "none", selectable: false, flexShrink: 0,
-                  children: colored(`${index ? "  " : ""}${part}`, true),
-                }));
-            },
-          });
-        },
+        render: (input) => render(slot, input),
       }));
     };
     const refresh = () => {

@@ -10,6 +10,7 @@ import { validateConfig } from "./config.js";
 test("click and command open dashboard; back preserves session; refresh and cleanup work", async () => {
   const slots = [];
   const layers = [];
+  let terminalWidth = 200;
   let route = { type: "session", sessionID: "test-session" };
   let registered;
   let routeRemoved = false;
@@ -19,7 +20,8 @@ test("click and command open dashboard; back preserves session; refresh and clea
     ...model, compactPercentageParts, percentageParts, Date, Promise, AbortSignal, queueMicrotask,
     loadConfig: () => ({ config: validateConfig({ opencodeGo: { enabled: true }, cliproxyapi: { enabled: true } }) }),
     createCollectors: (config) => createCollectors(config, { env: { OPENCODE_GO_API_KEY: 'fake-test-key', CLIPROXY_MANAGEMENT_PASSWORD: 'fake-test-key' }, fetch: (...args) => context.fetch(...args) }),
-    jsx: (type, props) => ({ type, props }), For: 'For', onCleanup: () => {},
+    jsx: (type, props) => ({ type, props }), For: 'For',
+    useTerminalDimensions: () => () => ({ width: terminalWidth, height: 30 }),
     createSignal: (initial) => { let value = initial; return [() => value, (next) => { value = next; }]; },
     setInterval: () => ({ unref() {} }), clearInterval() {},
     fetch: async (url, options) => {
@@ -63,17 +65,19 @@ test("click and command open dashboard; back preserves session; refresh and clea
   assert.equal(lastAccount.find((span) => span.props.children === '5').props.style.fg, '#ff6b6b');
   assert.equal(bar.props.flexWrap, 'wrap');
   const slotCount = slots.length;
-  const resize = async (width) => { bar.props.onSizeChange.call({ width }); await new Promise((resolve) => setImmediate(resolve)); };
   const text = () => bar.props.children.flatMap((child) => child.props.children.map((span) => span.props.children)).join('');
   const full = text();
-  await resize(full.length - 1);
+  // Narrow terminal: the bar re-renders through the getter, not a remount.
+  // For w >= 56 the host reserve is 28, so available = w - 36.
+  terminalWidth = full.length - 1 + 36;
   assert.equal(text(), 'GO 80  OT 88  TE 5');
   assert.equal(bar.props.children[2].props.children.find((span) => span.props.children === '5').props.style.fg, '#ff6b6b');
-  await resize(full.length);
-  assert.equal(text(), full);
-  await resize(1);
+  terminalWidth = full.length + 36;
+  assert.equal(text(), full, 'full layout returns once the terminal widens again');
+  terminalWidth = 20;
   assert.equal(bar.props.children.length, 3, 'narrow layout retains whole account groups');
   assert.equal(slots.length, slotCount, 'resizing does not remount slots');
+  terminalWidth = 200;
   const click = bar.props.onMouseDown;
   click({ button: 2 });
   assert.equal(route.type, 'session');
@@ -94,7 +98,7 @@ test("click and command open dashboard; back preserves session; refresh and clea
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(requests, 8, 'concurrent refreshes should coalesce');
   assert.equal(slots.length, slotCount, 'refreshing does not remount slots');
-  assert.equal(text(), 'GO 9  OT 88  TE 5', 'mounted bar reflects fresh quota at the same width');
+  assert.equal(text(), 'GO 9:-:-  OT 88:-:-  TE 5:-:-', 'mounted bar reflects fresh quota; wide terminal stays full');
   assert.equal(bar.props.children[0].props.children.find((span) => span.props.children === '9').props.style.fg, '#ff6b6b');
   const rows = page.props.children[2].props.children.props.each;
   assert.ok(rows.some((row) => row.includes('test@example.org')));
