@@ -37,7 +37,16 @@ export function validateConfig(input = {}) {
   if (typeof baseUrl !== "string" || !["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error("Invalid cliproxyapi baseUrl");
   if (url.protocol === "http:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) throw new Error("CLIProxyAPI requires HTTPS except on loopback");
   cliproxyapi.baseUrl = baseUrl.replace(/\/+$/, "");
-  return { refreshMs: interval("refreshMs", 60_000, 1000, 86_400_000), timeoutMs: interval("timeoutMs", 8000, 1, 300_000), opencodeGo, cliproxyapi };
+  const openaiProjectCosts = source("openaiProjectCosts", "tokenFile");
+  const endpoint = input.openaiProjectCosts?.endpoint;
+  if (endpoint !== undefined || openaiProjectCosts.enabled) {
+    let url;
+    try { url = new URL(endpoint); } catch { throw new Error("Invalid openaiProjectCosts endpoint"); }
+    if (typeof endpoint !== "string" || !["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash ||
+        (url.protocol === "http:" && !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) throw new Error("Invalid openaiProjectCosts endpoint");
+    openaiProjectCosts.endpoint = endpoint;
+  }
+  return { refreshMs: interval("refreshMs", 60_000, 1000, 86_400_000), timeoutMs: interval("timeoutMs", 8000, 1, 300_000), opencodeGo, cliproxyapi, openaiProjectCosts };
 }
 
 export function loadConfig({ env = process.env, home = homedir(), readFile = readFileSync } = {}) {

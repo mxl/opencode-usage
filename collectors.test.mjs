@@ -19,7 +19,7 @@ test("disabled sources have zero secret reads or requests, hide failures and pro
   const cpa = await collectors.fetchClipProxy();
   assert.equal(compactLine(go,cpa), 'Limits · /limits setup');
   const lines = dashboardLines(go,cpa);
-  assert.ok(lines.some(line => line.includes('Both sources are disabled')));
+  assert.ok(lines.some(line => line.includes('All sources are disabled')));
   assert.ok(!lines.some(line => line.includes('Unavailable')));
   assert.ok(!compactLine({ok:true}, cpa).includes('CPA'));
   assert.ok(!compactLine(go, {ok:false}).includes('GO'));
@@ -118,4 +118,69 @@ test("CPA excludes disabled accounts without requesting their quota", async () =
   assert.deepEqual(calls, ['active']);
   assert.ok(!compactLine({enabled:false}, result).includes('disabled@example.org'));
   assert.ok(!dashboardLines({enabled:false}, result).some(line => line.includes('disabled@example.org')));
+});
+
+test("project costs use configured read-only endpoint, coalesce and preserve only same-month success", async () => {
+  let now = Date.parse('2026-11-19T12:00:00Z');
+  let calls = 0;
+  let fail = false;
+  const body = {amount:12.345,currency:'USD',periodStart:'2026-11-01T00:00:00Z',periodEnd:'2026-11-19T11:59:00Z',observedAt:'2026-11-19T12:00:00Z'};
+  const config = validateConfig({openaiProjectCosts:{enabled:true,endpoint:'http://127.0.0.1:4097/custom',tokenFile:'~/cost-token'}});
+  const c = createCollectors(config, {now:() => now, env:{}, home:'/home/test', readFile(path) { assert.equal(path,'/home/test/cost-token'); return 'broker-secret'; }, fetch:async (url, options) => {
+    calls++;
+    assert.equal(url, config.openaiProjectCosts.endpoint);
+    assert.equal(options.method, 'GET');
+    assert.equal(options.redirect, 'error');
+    assert.equal(options.headers.authorization, 'Bearer broker-secret');
+    await new Promise(resolve => setImmediate(resolve));
+    if (fail) throw new Error('broker-secret');
+    return json(body);
+  }});
+  const [first, second] = await Promise.all([c.fetchProjectCosts(),c.fetchProjectCosts()]);
+  assert.deepEqual(first, second);
+  assert.equal(calls, 1);
+  const disabled = {enabled:false};
+  const rows = dashboardLines(disabled, disabled, undefined, now, {costs:first});
+  assert.ok(rows.some(row => row.includes('$12.345')));
+  const utc = value => new Date(value).toLocaleString(undefined, {timeZone:'UTC'});
+  assert.ok(rows.includes(`  Period: ${utc(body.periodStart)} to ${utc(body.periodEnd)} (exclusive, UTC)`));
+  assert.ok(rows.includes(`  Fetched: ${new Date(body.observedAt).toLocaleString()}`));
+  assert.ok(!rows.some(row => row.includes('All sources are disabled')));
+  assert.equal(compactLine(disabled,disabled), 'Limits · /limits setup');
+  fail = true;
+  const stale = await c.fetchProjectCosts();
+  assert.equal(stale.stale, true);
+  assert.equal(stale.observedAt, body.observedAt);
+  assert.ok(!JSON.stringify(stale).includes('broker-secret'));
+  assert.ok(dashboardLines(disabled,disabled,undefined,now,{costs:stale}).some(row => row.includes('stale')));
+  now = Date.parse('2026-12-01T00:00:00Z');
+  assert.ok(!dashboardLines(disabled,disabled,undefined,now,{costs:stale}).some(row => row.includes('$12.345')));
+  assert.equal((await c.fetchProjectCosts()).ok, false);
+});
+
+test("project cost source rejects missing credentials, malformed and non-current contracts", async () => {
+  const config = validateConfig({openaiProjectCosts:{enabled:true,endpoint:'https://example.org/costs'}});
+  const now = Date.parse('2026-11-19T12:00:00Z');
+  const valid = {amount:0,currency:'USD',periodStart:'2026-11-01T00:00:00Z',periodEnd:'2026-11-19T12:00:00Z',observedAt:'2026-11-19T12:00:00Z'};
+  const missing = createCollectors(config,{env:{},fetch() {assert.fail('network');}});
+  assert.equal((await missing.fetchProjectCosts()).error,'missing broker token');
+  for (const bad of [{amount:'0'}, {currency:'EUR'}, {periodStart:'2026-10-01T00:00:00Z'}, {periodEnd:'2026-11-01T00:00:00Z'}, {periodEnd:'2026-12-01T00:00:00Z'}, {observedAt:'2026-11-19T11:59:59Z'}, {observedAt:'not-a-date'}, {observedAt:'2026-02-30T00:00:00Z'}, {periodEnd:'2026-11-19T12:00:00+00:00'}]) {
+    const c = createCollectors(config,{now:() => now,env:{OPENAI_PROJECT_COSTS_TOKEN:'test'},fetch:async () => json({...valid,...bad})});
+    assert.equal((await c.fetchProjectCosts()).error,'invalid cost response');
+  }
+  const off = createCollectors(validateConfig(),{env:{},readFile(){assert.fail('file');},fetch(){assert.fail('network');}});
+  assert.deepEqual(await off.fetchProjectCosts(),{enabled:false});
+});
+
+test("project costs accept signed amounts and tolerate bounded broker clock skew", async () => {
+  const config = validateConfig({openaiProjectCosts:{enabled:true,endpoint:'https://example.org/costs'}});
+  const now = Date.parse('2026-11-19T12:00:00Z');
+  const body = {amount:-0.25,currency:'USD',periodStart:'2026-11-01T00:00:00Z',periodEnd:'2026-11-19T12:04:00Z',observedAt:'2026-11-19T12:04:00Z'};
+  const c = createCollectors(config,{now:() => now,env:{OPENAI_PROJECT_COSTS_TOKEN:'test'},fetch:async () => json(body)});
+  const result = await c.fetchProjectCosts();
+  assert.equal(result.amount,-0.25);
+  assert.ok(dashboardLines({enabled:false},{enabled:false},undefined,now,{costs:result}).some(line => line.includes('-$0.25')));
+  body.periodEnd = '2026-11-19T12:06:00Z';
+  body.observedAt = body.periodEnd;
+  assert.equal((await c.fetchProjectCosts()).error,'invalid cost response');
 });

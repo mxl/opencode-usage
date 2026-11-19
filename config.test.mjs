@@ -8,10 +8,21 @@ test("configuration defaults, XDG and explicit tilde files", () => {
   assert.equal(config.timeoutMs, 8000);
   assert.equal(config.opencodeGo.enabled, false);
   assert.equal(config.cliproxyapi.enabled, false);
+  assert.equal(config.openaiProjectCosts.enabled, false);
   assert.equal(configPath({}, '/synthetic-home'), '/synthetic-home/.config/opencode-usage/config.json');
   assert.equal(configPath({XDG_CONFIG_HOME:'/synthetic-config'}, '/synthetic-home'), '/synthetic-config/opencode-usage/config.json');
   assert.equal(expandHome('~/key', '/synthetic-home'), '/synthetic-home/key');
   assert.equal(expandHome('~', '/synthetic-home'), '/synthetic-home');
+});
+
+test("project costs require an explicit safe full endpoint and secret file", () => {
+  for (const endpoint of [undefined, 'http://remote.example/costs', 'https://user:pass@example.org/costs', 'https://example.org/costs?key=x', 'https://example.org/costs#x', 'file:///costs']) {
+    assert.throws(() => validateConfig({openaiProjectCosts:{enabled:true, endpoint}}));
+  }
+  assert.throws(() => validateConfig({openaiProjectCosts:{tokenFile:'relative'}}));
+  for (const endpoint of ['http://127.0.0.1:4097/v1/openai/project-costs', 'http://[::1]/costs', 'https://example.org/custom/costs']) {
+    assert.equal(validateConfig({openaiProjectCosts:{enabled:true, endpoint}}).openaiProjectCosts.endpoint, endpoint);
+  }
 });
 
 test("credentials prefer environment, then only an explicit file", () => {

@@ -108,3 +108,39 @@ test("click and command open dashboard; back preserves session; refresh and clea
   assert.ok(slots.every(({removed}) => removed));
   assert.ok(routeRemoved);
 });
+
+test('project spend fetches only on open and manual refresh, never startup or timer', async () => {
+  let timer, routeDefinition, globalCommands, dashboardCommands;
+  let costCalls = 0;
+  let release;
+  const context = vm.createContext({
+    ...model, compactPercentageParts, percentageParts, Date, Promise,
+    loadConfig: () => ({config:validateConfig({openaiProjectCosts:{enabled:true,endpoint:'https://example.org/costs'}})}),
+    createCollectors: () => ({fetchGo:async () => ({enabled:false}),fetchClipProxy:async () => ({enabled:false}),fetchProjectCosts:() => {
+      costCalls++;
+      return new Promise(resolve => { release = resolve; });
+    }}),
+    jsx:(type,props) => ({type,props}), For:'For', useTerminalDimensions:() => () => ({width:100}),
+    createSignal:(initial) => {let value=initial; return [() => value, next => {value=next;}];},
+    setInterval:(callback) => {timer=callback; return {unref(){}};}, clearInterval(){},
+  });
+  const source = readFileSync(new URL('./tui.js', import.meta.url),'utf8')
+    .replace(/^import\s+[\s\S]*?;\s*$/gm,'').replace('export default {','globalThis.plugin = {');
+  vm.runInContext(source,context);
+  const dispose = context.plugin.setup({theme:{text:{base:'white'}}, keymap:{layer:factory => {
+    const layer = factory(); if (layer.mode === 'global') globalCommands = layer.commands; else dashboardCommands = layer.commands;
+  }}, ui:{slot:() => () => {},router:{current:() => ({type:'home'}),navigate(){},register:definition => {routeDefinition=definition; return () => {};}}}});
+  await new Promise(resolve => setImmediate(resolve));
+  timer();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(costCalls,0);
+  globalCommands[0].run();
+  assert.equal(costCalls,1);
+  assert.equal(routeDefinition.render().props.children[0].props.children, 'Limits — quota and project spend');
+  release({ok:false,error:'request failed'});
+  await new Promise(resolve => setImmediate(resolve));
+  dashboardCommands.find(command => command.bind === 'r').run();
+  assert.equal(costCalls,2);
+  release({ok:false,error:'request failed'});
+  dispose();
+});

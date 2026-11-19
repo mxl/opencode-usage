@@ -149,14 +149,26 @@ function accountRestrictionLines(account) {
   return lines;
 }
 
-export function dashboardLines(go, cpa, updatedAt, now = Date.now(), { refreshMs = 60_000, configError } = {}) {
+export function dashboardLines(go, cpa, updatedAt, now = Date.now(), { refreshMs = 60_000, configError, costs = { enabled: false } } = {}) {
   const lines = ["All percentages are remaining.  W = weekly · M = monthly", ""];
   if (configError) lines.push(configError, "");
-  if (go?.enabled === false && cpa?.enabled === false) {
-    return [...lines, "Set up opencode-usage", "Both sources are disabled. No network requests are made.",
+  if (go?.enabled === false && cpa?.enabled === false && costs?.enabled === false) {
+    return [...lines, "Set up opencode-usage", "All sources are disabled. No network requests are made.",
       "Create $XDG_CONFIG_HOME/opencode-usage/config.json (default ~/.config/opencode-usage/config.json).",
-      "Enable opencodeGo.enabled or cliproxyapi.enabled and supply its credential via environment or an explicit secret file.",
+      "Enable opencodeGo, cliproxyapi or openaiProjectCosts and supply its credential via environment or an explicit secret file.",
       "See README for configuration examples. Reload the plugin after configuration changes."];
+  }
+  if (costs?.enabled !== false) {
+    lines.push("OpenAI project spend (USD)");
+    const month = new Date(now); month.setUTCDate(1); month.setUTCHours(0, 0, 0, 0);
+    if (!costs?.ok || Date.parse(costs.periodStart) !== month.getTime()) lines.push(`  Unavailable: ${costs?.ok ? "no current-month value" : costs?.error ?? "loading"}`);
+    else {
+      const amount = Math.abs(costs.amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 20 });
+      lines.push(`  ${costs.amount < 0 ? "-" : ""}$${amount}${costs.stale ? " · stale" : ""}`,
+        `  Period: ${new Date(costs.periodStart).toLocaleString(undefined, { timeZone: "UTC" })} to ${new Date(costs.periodEnd).toLocaleString(undefined, { timeZone: "UTC" })} (exclusive, UTC)`,
+        `  Fetched: ${new Date(costs.observedAt).toLocaleString()}${costs.stale ? ` · refresh failed: ${costs.error}` : ""}`);
+    }
+    lines.push("");
   }
   const detail = (window) => {
     const reset = countdown(window.resetsAt, now);

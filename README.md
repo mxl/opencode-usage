@@ -1,7 +1,7 @@
 # opencode-usage
 
 A clickable remaining-quota bar and `/limits` dashboard for the OpenCode TUI.
-OpenCode Go and CLIProxyAPI are independent, optional sources; **both are disabled by default**.
+OpenCode Go, CLIProxyAPI and OpenAI project spend are independent, optional sources; **all are disabled by default**.
 No inference requests, credential changes, quota-reset actions or account mutations are sent.
 
 ## Local installation
@@ -25,7 +25,7 @@ The package exposes `./tui` and uses the plain default `{ id, setup }` plugin in
 
 ## Configuration
 
-Create `~/.config/opencode-usage/config.json`, or `$XDG_CONFIG_HOME/opencode-usage/config.json` when `XDG_CONFIG_HOME` is set. Missing configuration disables both sources without reading secrets or making requests. Invalid/unreadable configuration disables both and shows a sanitized setup error in `/limits`.
+Create `~/.config/opencode-usage/config.json`, or `$XDG_CONFIG_HOME/opencode-usage/config.json` when `XDG_CONFIG_HOME` is set. Missing configuration disables all sources without reading secrets or making requests. Invalid/unreadable configuration disables all sources and shows a sanitized setup error in `/limits`.
 
 Start with [config.example.json](config.example.json). Enable only the sources you use:
 
@@ -65,6 +65,24 @@ Use restrictive permissions, for example `chmod 600` on secret files. Explicit f
 
 `refreshMs` defaults to 60000 (integer, 1000–86400000); `timeoutMs` defaults to 8000 (integer, 1–300000), applied per HTTP request. At most four account reads run concurrently. Repeated refreshes coalesce. Configuration is loaded at startup; credentials are read on refresh. Use HTTPS for remote CLIProxyAPI servers; plain HTTP is allowed only for localhost, 127.0.0.1 or ::1. URLs cannot embed credentials, queries or fragments. Authenticated requests reject redirects.
 
+### OpenAI project spend (optional)
+
+Run a separate read-only project-cost broker and configure its **full endpoint**. The broker must hold the OpenAI Admin API key and expose a distinct, read-only bearer token; never supply the Admin key to this plugin. For example, to enable only this source:
+
+```json
+{
+  "openaiProjectCosts": {
+    "enabled": true,
+    "endpoint": "http://127.0.0.1:4097/v1/openai/project-costs",
+    "tokenFile": "~/.config/opencode-usage/secrets/project-costs-token"
+  }
+}
+```
+
+Alternatively set `OPENAI_PROJECT_COSTS_TOKEN` in OpenCode's environment; it takes precedence over `tokenFile`. Use restrictive file permissions as above. The endpoint must use HTTPS, or HTTP on localhost, 127.0.0.1 or ::1; embedded credentials, queries, fragments and redirects are rejected. The broker must return JSON `{ "amount": 12.34, "currency": "USD", "periodStart": "2026-11-01T00:00:00Z", "periodEnd": "2026-11-19T12:00:00Z", "observedAt": "2026-11-19T12:00:00Z" }`, with UTC timestamps, the current UTC month start, an exclusive cutoff after the start, and an observation at or after the cutoff. The cutoff may be up to five minutes ahead of the local clock to allow for clock skew. This source is disabled by default; setting it up does not activate a broker or modify OpenAI/LiteLLM configuration.
+
+Project spend appears only in `/limits`, not the compact quota bar. It includes direct OpenAI API charges for the broker's configured project, including usage through LiteLLM; it is not a remaining balance, LiteLLM estimate, or Codex quota. It is fetched only on dashboard open and manual refresh, not on the quota auto-refresh timer. Billing data may lag. On failure, the last successful same-month amount remains in TUI memory with its original fetched timestamp and a stale marker; otherwise it is unavailable. Nothing is persisted.
+
 ## Reading the display
 
 Click the bar or run `/limits` for the full dashboard. `Esc` returns to the prior page/session; `R` refreshes.
@@ -75,7 +93,7 @@ Click the bar or run `/limits` for the full dashboard. `Esc` returns to the prio
 - Each numeric value is independently colored: below 10% red, below 30% yellow, otherwise the theme's normal text color. Account labels remain neutral. No `!` restriction markers are appended.
 - `~` marks captured-header fallback quota, which may be stale. The dashboard explains live/captured sources, restriction causes, quota blocks, cooldowns and resets.
 - A reset marked `due` is not proof quota replenished; no inference is sent to test it.
-- Disabled sources are hidden, not shown as failures. With both disabled the bar is a muted setup link and `/limits` explains setup.
+- Disabled sources are hidden, not shown as failures. With quota sources disabled the bar is a muted setup link; `/limits` also explains setup when every source is disabled.
 
 ## Supported data and security
 

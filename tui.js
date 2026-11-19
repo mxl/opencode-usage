@@ -14,13 +14,14 @@ export default {
   id: "opencode-usage",
   setup(ctx) {
     const { config, error: configError } = loadConfig();
-    const { fetchGo, fetchClipProxy } = createCollectors(config);
+    const { fetchGo, fetchClipProxy, fetchProjectCosts } = createCollectors(config);
     const muted = ctx.theme.text.muted ?? ctx.theme.text.base;
     const colored = (text, compact = false) => (compact ? compactPercentageParts(text) : percentageParts(text)).map((part) =>
       jsx("span", { ...(part.color ? { style: { fg: part.color } } : {}), children: part.text }));
     const [state, setState] = createSignal({
       go: config.opencodeGo.enabled ? undefined : { enabled: false },
       cpa: config.cliproxyapi.enabled ? undefined : { enabled: false },
+      costs: config.openaiProjectCosts.enabled ? { ok: false, error: "loading" } : { enabled: false },
     });
     let claims = [];
     let disposed = false;
@@ -31,6 +32,7 @@ export default {
       const current = ctx.ui.router.current();
       if (current.type !== "plugin" || current.name !== ROUTE) previousRoute = { ...current };
       ctx.ui.router.navigate({ type: "plugin", name: ROUTE });
+      void refreshCosts();
     };
     const unmount = () => {
       for (const claim of claims) claim();
@@ -76,29 +78,33 @@ export default {
       if (pending) return pending;
       pending = Promise.all([fetchGo(), fetchClipProxy()]).then(([go, cpa]) => {
         if (disposed) return;
-        setState({ go, cpa, updatedAt: Date.now() });
+        setState({ ...state(), go, cpa, updatedAt: Date.now() });
       }).finally(() => { pending = undefined; });
       return pending;
     };
+    const refreshCosts = () => fetchProjectCosts().then((costs) => {
+      if (!disposed) setState({ ...state(), costs });
+    });
+    const refreshDashboard = () => { void refresh(); void refreshCosts(); };
     const unregisterRoute = ctx.ui.router.register({
       name: ROUTE,
       render: () => {
         ctx.keymap.layer(() => ({ commands: [
           { bind: "escape", run: close },
-          { bind: "r", run: () => void refresh() },
+          { bind: "r", run: refreshDashboard },
         ] }));
         return jsx("box", {
           flexDirection: "column", width: "100%", height: "100%", padding: 1,
           children: [
-            jsx("text", { fg: ctx.theme.text.base, children: "Limits — remaining quota" }),
+            jsx("text", { fg: ctx.theme.text.base, children: config.openaiProjectCosts.enabled ? "Limits — quota and project spend" : "Limits — remaining quota" }),
             jsx("box", { flexDirection: "row", gap: 3, marginBottom: 1, children: [
               jsx("text", { fg: muted, onMouseDown: click(close), children: "[Esc] Back" }),
-              jsx("text", { fg: muted, onMouseDown: click(() => void refresh()), children: "[R] Refresh" }),
+              jsx("text", { fg: muted, onMouseDown: click(refreshDashboard), children: "[R] Refresh" }),
             ] }),
             jsx("scrollbox", { flexGrow: 1, children: jsx(For, {
               get each() {
                 const value = state();
-                return dashboardLines(value.go, value.cpa, value.updatedAt, Date.now(), { refreshMs: config.refreshMs, configError });
+                return dashboardLines(value.go, value.cpa, value.updatedAt, Date.now(), { refreshMs: config.refreshMs, configError, costs: value.costs });
               },
               children: (line) => jsx("text", { fg: ctx.theme.text.base, wrapMode: "word", children: colored(line || " ") }),
             }) }),

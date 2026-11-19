@@ -85,5 +85,44 @@ export function createCollectors(config, dependencies = {}) {
       return { ok: true, accounts };
     } catch (error) { return { ok: false, error: safeError(error) }; }
   }
-  return { fetchGo, fetchClipProxy };
+  let costPending;
+  let lastCost;
+  function fetchProjectCosts() {
+    if (!config.openaiProjectCosts.enabled) return Promise.resolve({ enabled: false });
+    if (costPending) return costPending;
+    costPending = (async () => {
+      let error;
+      const token = credential("OPENAI_PROJECT_COSTS_TOKEN", config.openaiProjectCosts.tokenFile);
+      if (!token) error = "missing broker token";
+      else try {
+        const result = await getJSON(config.openaiProjectCosts.endpoint, { authorization: `Bearer ${token}` }, { method: "GET" });
+        if (result.error) error = result.error;
+        else {
+          const { amount, currency, periodStart, periodEnd, observedAt } = result.body ?? {};
+          const utc = (value) => {
+            if (typeof value !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,3})?Z$/.test(value)) return false;
+            const time = Date.parse(value);
+            if (!Number.isFinite(time)) return false;
+            const normalized = value.replace(/(?:\.(\d{1,3}))?Z$/, (_, fraction = "") => `.${fraction.padEnd(3, "0")}Z`);
+            return new Date(time).toISOString() === normalized;
+          };
+          const now = (dependencies.now ?? Date.now)();
+          const start = new Date(now); start.setUTCDate(1); start.setUTCHours(0, 0, 0, 0);
+          // Allow modest broker/client clock skew without accepting an arbitrary future cutoff.
+          if (typeof amount !== "number" || !Number.isFinite(amount) || currency !== "USD" ||
+              !utc(periodStart) || !utc(periodEnd) || !utc(observedAt) || Date.parse(periodStart) !== start.getTime() ||
+              Date.parse(periodEnd) <= start.getTime() || Date.parse(periodEnd) > now + 300_000 ||
+              Date.parse(observedAt) < Date.parse(periodEnd)) error = "invalid cost response";
+          else return lastCost = { ok: true, amount, currency, periodStart, periodEnd, observedAt };
+        }
+      } catch (caught) { error = safeError(caught); }
+      const now = (dependencies.now ?? Date.now)();
+      const start = new Date(now); start.setUTCDate(1); start.setUTCHours(0, 0, 0, 0);
+      if (lastCost && Date.parse(lastCost.periodStart) === start.getTime()) return { ...lastCost, stale: true, error };
+      lastCost = undefined;
+      return { ok: false, error };
+    })().finally(() => { costPending = undefined; });
+    return costPending;
+  }
+  return { fetchGo, fetchClipProxy, fetchProjectCosts };
 }
