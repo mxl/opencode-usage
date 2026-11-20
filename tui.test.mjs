@@ -20,7 +20,7 @@ test("click and command open dashboard; back preserves session; refresh and clea
     ...model, compactPercentageParts, percentageParts, Date, Promise, AbortSignal, queueMicrotask,
     loadConfig: () => ({ config: validateConfig({ opencodeGo: { enabled: true }, cliproxyapi: { enabled: true } }) }),
     createCollectors: (config) => createCollectors(config, { env: { OPENCODE_GO_API_KEY: 'fake-test-key', CLIPROXY_MANAGEMENT_PASSWORD: 'fake-test-key' }, fetch: (...args) => context.fetch(...args) }),
-    jsx: (type, props) => ({ type, props }), For: 'For',
+    jsx: (type, props) => ({ type, props }), For: 'For', Show: 'Show',
     useTerminalDimensions: () => () => ({ width: terminalWidth, height: 30 }),
     createSignal: (initial) => { let value = initial; return [() => value, (next) => { value = next; }]; },
     setInterval: () => ({ unref() {} }), clearInterval() {},
@@ -55,9 +55,19 @@ test("click and command open dashboard; back preserves session; refresh and clea
   };
   const dispose = context.plugin.setup(ctx);
   await new Promise((resolve) => setImmediate(resolve));
-  const home = slots.findLast(({ claim }) => claim.before === 'home.footer');
-  const bar = home.claim.render({});
-  assert.equal(bar.props.width, undefined, 'bar must not claim the full footer row width');
+  assert.equal(slots.length, 1);
+  assert.equal(slots[0].claim.append, 'app', 'app slot is below the route, outside the prompt status row');
+  const visibility = slots[0].claim.render({});
+  assert.equal(visibility.props.when, true, 'session route displays the bar');
+  const bar = visibility.props.children;
+  assert.equal(bar.props.width, '100%', 'bar measures the allocated app-slot width, not its content');
+  assert.equal(bar.props.paddingLeft, 2);
+  assert.equal(bar.props.paddingRight, 2);
+  const setSlotWidth = async (width) => {
+    bar.props.onSizeChange.call({ width });
+    await new Promise((resolve) => queueMicrotask(resolve));
+  };
+  await setSlotWidth(200);
   assert.ok(bar.props.children.flatMap((child) => child.props.children.map((span) => span.props.children)).join('').includes('GO 80:-:-'));
   assert.equal(bar.props.children.length, 3, 'each account remains a separate wrapping group');
   const lastAccount = bar.props.children[2].props.children;
@@ -67,17 +77,27 @@ test("click and command open dashboard; back preserves session; refresh and clea
   const slotCount = slots.length;
   const text = () => bar.props.children.flatMap((child) => child.props.children.map((span) => span.props.children)).join('');
   const full = text();
-  // Narrow terminal: the bar re-renders through the getter, not a remount.
-  // For w >= 56 the host reserve is 28, so available = w - 36.
-  terminalWidth = full.length - 1 + 36;
+  // The app slot can be narrower than the terminal (e.g. a vertical tab rail).
+  // Only its two columns of padding on each side are reserved.
+  await setSlotWidth(full.length - 1 + 4);
   assert.equal(text(), 'GO 80  OT 88  TE 5');
   assert.equal(bar.props.children[2].props.children.find((span) => span.props.children === '5').props.style.fg, '#ff6b6b');
-  terminalWidth = full.length + 36;
+  await setSlotWidth(full.length + 4);
   assert.equal(text(), full, 'full layout returns once the terminal widens again');
   terminalWidth = 20;
+  assert.equal(bar.props.paddingLeft, 1, 'narrow session padding matches the host');
+  assert.equal(bar.props.paddingRight, 1);
+  await setSlotWidth(20);
   assert.equal(bar.props.children.length, 3, 'narrow layout retains whole account groups');
   assert.equal(slots.length, slotCount, 'resizing does not remount slots');
   terminalWidth = 200;
+  await setSlotWidth(200);
+  route = { type: 'home' };
+  assert.equal(visibility.props.when, true, 'home route displays the bar');
+  terminalWidth = 20;
+  assert.equal(bar.props.paddingLeft, 2, 'home footer uses two-column padding');
+  terminalWidth = 200;
+  route = { type: 'session', sessionID: 'test-session' };
   const click = bar.props.onMouseDown;
   click({ button: 2 });
   assert.equal(route.type, 'session');
@@ -85,6 +105,7 @@ test("click and command open dashboard; back preserves session; refresh and clea
   assert.equal(route.type, 'session');
   click({ button: 0 });
   assert.equal(route.name, 'opencode-usage.limits.dashboard');
+  assert.equal(visibility.props.when, false, 'bar is hidden on plugin routes');
   const page = registered.render();
   assert.equal(page.props.children[0].props.children, 'Limits — remaining quota');
   const commands = layers.at(-1).commands;
@@ -103,7 +124,7 @@ test("click and command open dashboard; back preserves session; refresh and clea
   const rows = page.props.children[2].props.children.props.each;
   assert.ok(rows.some((row) => row.includes('test@example.org')));
   assert.ok(rows.some((row) => row.includes('5h:5%')));
-  assert.ok(rows.some((row) => row.includes('Source: live usage endpoint')));
+  assert.ok(!rows.some((row) => row.includes('Source: live usage endpoint')));
   dispose();
   assert.ok(slots.every(({removed}) => removed));
   assert.ok(routeRemoved);

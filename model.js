@@ -102,13 +102,12 @@ export function adaptiveGroups(go, cpa, width, measure = (text) => text.length) 
   return width === undefined || measure(full.join("  ")) <= width ? full : compactGroups(go, cpa, true);
 }
 
-// The host's prompt footer reserves the same share for its own status line
-// (path, subagents, shells): see promptFooterLayout in opencode — the usage
-// bar must fit beside it, not instead of it.
-export function footerAvailableWidth(terminalWidth) {
-  const width = Number(terminalWidth);
+// The app slot gets its own row; only the bar's horizontal padding is reserved.
+export function footerAvailableWidth(slotWidth, padding = 2) {
+  if (slotWidth === undefined || slotWidth === null) return undefined;
+  const width = Number(slotWidth);
   if (!Number.isFinite(width) || width <= 0) return undefined;
-  return Math.max(0, width - 8 - Math.min(28, Math.floor(width / 2)));
+  return Math.max(0, width - 2 * padding);
 }
 
 function cooldownReasonLabel(reason) {
@@ -122,15 +121,16 @@ function cooldownReasonLabel(reason) {
   return labels[key] ?? (key.replace(/[_-]+/g, " ").slice(0, 80) || "unspecified");
 }
 
-function accountRestrictionLines(account) {
+function accountRestrictionLines(account, windows) {
   const lines = [];
-  if (account.blocked) lines.push("  Cause: CLIProxyAPI marks the credential quota-blocked.");
-
+  const hasZero = windows.some((window) => window.left === 0);
+  const hasInlineLimit = windows.some((window) => window.limited && window.left !== 0);
   const cooldownCount = Number(account.cooldowns) || 0;
-  if (cooldownCount > 0) {
+  const reasons = (account.cooldownReasons ?? []).map((item) => typeof item === "string" ? item : item?.reason ?? item?.code);
+  const quotaOnly = reasons.length === cooldownCount && reasons.every((reason) => reason === "credential_quota" || reason === "quota");
+  if (cooldownCount > 0 && !(hasZero && quotaOnly)) {
     const counts = new Map();
-    for (const item of account.cooldownReasons ?? []) {
-      const reason = typeof item === "string" ? item : item?.reason ?? item?.code;
+    for (const reason of reasons) {
       const label = cooldownReasonLabel(reason);
       counts.set(label, (counts.get(label) ?? 0) + 1);
     }
@@ -140,12 +140,7 @@ function accountRestrictionLines(account) {
     lines.push(`  Cause: ${cooldownCount} active cooldown${cooldownCount === 1 ? "" : "s"}${summary ? ` — ${summary}` : ""}.`);
   }
 
-  if (account.usageLimited) {
-    const detail = account.usageLimitReasons?.length ? ` (${account.usageLimitReasons.join(", ")})` : "";
-    lines.push(`  Cause: live usage endpoint reports the account limit reached${detail}.`);
-  }
-  const limitedWindows = (account.windows ?? []).filter((window) => window.limited).map((window) => window.label);
-  if (limitedWindows.length) lines.push(`  Cause: provider reports rate-limited on ${limitedWindows.join(", ")}.`);
+  if (account.usageLimited && !hasZero && !hasInlineLimit) lines.push("  OpenAI reports a limit.");
   return lines;
 }
 
@@ -172,7 +167,8 @@ export function dashboardLines(go, cpa, updatedAt, now = Date.now(), { refreshMs
   }
   const detail = (window) => {
     const reset = countdown(window.resetsAt, now);
-    return `  ${windowText(window, "%")}    reset ${reset ?? "unknown"}${reset === "due" ? " (awaiting fresh quota)" : ""}`;
+    const limited = window.limited && window.left !== 0 ? " · rate-limited" : "";
+    return `  ${windowText(window, "%")}${limited}    reset ${reset ?? "unknown"}${reset === "due" ? " (awaiting fresh quota)" : ""}`;
   };
   if (go?.enabled !== false) {
     lines.push("GO  OpenCode Go");
@@ -181,8 +177,6 @@ export function dashboardLines(go, cpa, updatedAt, now = Date.now(), { refreshMs
       const windows = goWindows(go);
       lines.push(...windows.map(detail));
       if (!windows.length) lines.push("  No usage windows reported");
-      const limited = windows.filter((window) => window.limited).map((window) => window.label);
-      if (limited.length) lines.push(`  Cause: OpenCode Go reports rate-limited on ${limited.join(", ")}.`);
     }
   }
   if (cpa?.enabled !== false) {
@@ -192,22 +186,23 @@ export function dashboardLines(go, cpa, updatedAt, now = Date.now(), { refreshMs
       const labels = accountLabels(cpa.accounts);
       cpa.accounts.forEach((account, index) => {
         const plan = account.plan ?? account.signals?.["X-Codex-Plan-Type"];
-        const state = account.disabled ? "disabled" : account.blocked || account.cooldowns || account.usageLimited ? "throttled" : account.status ?? "active";
+        const state = account.disabled ? "disabled" : account.blocked ? "quota-blocked" : account.cooldowns || account.usageLimited ? "throttled" : account.status ?? "active";
         lines.push("", `${labels[index]}  ${account.account}  [${state}${plan ? ` · ${plan}` : ""}]`);
         const windows = account.windows ?? codexWindows(account.signals);
         lines.push(...(windows.length ? windows.map(detail) : ["  Remaining quota unavailable — no usage windows returned"]));
-        lines.push(...accountRestrictionLines(account));
-        if (account.source) {
+        lines.push(...accountRestrictionLines(account, windows));
+        if (account.source === "captured") {
           const observed = account.observedAt ? ` · observed ${new Date(account.observedAt).toLocaleString()}` : "";
-          lines.push(`  Source: ${account.source === "live" ? "live usage endpoint" : "captured headers (may be stale)"}${observed}`);
+          lines.push(`  Source: captured headers (may be stale)${observed}`);
         }
         if (account.quotaError) lines.push(`  Live quota unavailable: ${account.quotaError}`);
       });
       if (!cpa.accounts.length) lines.push("  No accounts reported");
     }
-    lines.push("", "CPA quotas use live usage reads; ~ marks a captured fallback that may be stale.");
+    if (cpa?.ok && cpa.accounts.some((account) => account.source === "captured" && (account.windows ?? codexWindows(account.signals)).length)) {
+      lines.push("", "~ marks a captured fallback that may be stale.");
+    }
   }
-  lines.push("Reset due does not imply quota has replenished; no inference is sent to check.",
-    updatedAt ? `Last fetched ${new Date(updatedAt).toLocaleTimeString()} · auto-refresh ${refreshMs / 1000}s` : "Fetching limits…");
+  lines.push(updatedAt ? `Last fetched ${new Date(updatedAt).toLocaleTimeString()} · auto-refresh ${refreshMs / 1000}s` : "Fetching limits…");
   return lines;
 }

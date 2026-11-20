@@ -43,6 +43,16 @@ test("each source works alone and missing credentials do not fetch", async () =>
   assert.equal(compactLine(go,await solo.fetchClipProxy()), 'GO 75:-:-');
 });
 
+test("Go rate limits use rounded display values and retain unknown statuses inline", async () => {
+  const collector = createCollectors(enabled({cliproxyapi:{enabled:false}}), {env:credentials, fetch:async () => json({usage:{
+    rolling:{percent:99.6,status:'rate-limited'}, weekly:{percent:80,status:'rate-limited'}, monthly:{status:'rate-limited'},
+  }})});
+  const rows = dashboardLines(await collector.fetchGo(), {enabled:false});
+  assert.ok(rows.some(line => line.includes('5h:0%') && !line.includes('rate-limited')));
+  assert.ok(rows.some(line => line.includes('W:20% · rate-limited')));
+  assert.ok(rows.some(line => line.includes('M:? · rate-limited')));
+});
+
 test("request failures, HTTP and parser errors are sanitized; sources fail independently", async () => {
   for (const failure of [new Error('synthetic-go-key secret body'), Object.assign(new Error('token'),{name:'TimeoutError'})]) {
     const c = createCollectors(enabled(), {env:credentials, fetch:async () => {throw failure;}});
@@ -90,6 +100,20 @@ test("CPA reads Codex only, uses fixed quota GET placeholder, bounds concurrency
   assert.equal(result.accounts[1].windows[0].left, 80);
   assert.ok(compactLine(await c.fetchGo(), result).includes('60:-:-~'));
   assert.ok(!JSON.stringify(result).includes('synthetic-cpa-key'));
+});
+
+test("missing cooldown reasons remain visible even when a live window rounds to zero", async () => {
+  const collector = createCollectors(enabled({opencodeGo:{enabled:false}}), {env:credentials, fetch:async url =>
+    url.endsWith('/credentials') ? json({files:[{provider:'codex',account:'test@example.org',auth_index:'0',quota_blocked:true,
+      cooldowns:[{reason:'quota'},{}]}]}) : json({status_code:200,body:{plan_type:'plus',rate_limit:{allowed:false,
+      primary_window:{limit_window_seconds:18000,used_percent:99.6}}}})});
+  const cpa = await collector.fetchClipProxy();
+  const text = dashboardLines({enabled:false},cpa).join('\n');
+  assert.ok(text.includes('[quota-blocked · plus]'));
+  assert.ok(text.includes('5h:0%'));
+  assert.ok(text.includes('2 active cooldowns — quota limit, other cooldown'));
+  assert.ok(!text.includes('OpenAI reports a limit'));
+  assert.ok(!text.includes('allowed=false'));
 });
 
 test("CPA API-call malformed and failed upstream responses never leak bodies", async () => {

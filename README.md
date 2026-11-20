@@ -85,13 +85,13 @@ Project spend appears only in `/limits`, not the compact quota bar. It includes 
 
 ## Reading the display
 
-Click the bar or run `/limits` for the full dashboard. `Esc` returns to the prior page/session; `R` refreshes.
+The bar occupies its own row below OpenCode's status on home and session screens. Click it or run `/limits` for the full dashboard. `Esc` returns to the prior page/session; `R` refreshes.
 
 - When space permits, compact values occupy **5h:W:M** positions: `GO 80:40:-` means 80% five-hour, 40% weekly, no monthly window reported. In narrower bars every account instead shows its shortest reported interval, e.g. `GO 80  AA 63`; groups wrap if needed. Longer-window restrictions can be hidden in this view—open the dashboard to see all windows.
 - Account labels are the first two characters before `@`, uppercased, or `?` if empty. Labels can repeat, including `GO`; the dashboard shows full account identities.
 - `-` means absent/not reported; `?` means unknown or unavailable. An enabled source failure is shown without hiding other sources.
 - Each numeric value is independently colored: below 10% red, below 30% yellow, otherwise the theme's normal text color. Account labels remain neutral. No `!` restriction markers are appended.
-- `~` marks captured-header fallback quota, which may be stale. The dashboard explains live/captured sources, restriction causes, quota blocks, cooldowns and resets.
+- `~` marks captured-header fallback quota, which may be stale. The dashboard shows its observation time when available and reports live-read failures. Quota blocks appear in account status; rate-limited windows, relevant cooldowns and resets appear alongside the remaining quota.
 - A reset marked `due` is not proof quota replenished; no inference is sent to test it.
 - Disabled sources are hidden, not shown as failures. With quota sources disabled the bar is a muted setup link; `/limits` also explains setup when every source is disabled.
 

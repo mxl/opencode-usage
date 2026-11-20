@@ -13,7 +13,7 @@ test('live usage fills both previously unknown accounts with actual duration win
   assert.deepEqual(both.windows.map(({label,left}) => ({label,left})), [{label:'5h',left:88},{label:'W',left:78}]);
   const cpa = {ok:true,accounts:[{account:'an@example.org', ...both, source:'live'}]};
   assert.ok(compactLine({ok:true},cpa).includes('AN 88:78:-'));
-  assert.ok(dashboardLines({ok:true},cpa).join('\n').includes('Source: live usage endpoint'));
+  assert.ok(!dashboardLines({ok:true},cpa).join('\n').includes('Source: live usage endpoint'));
 });
 
 test('upstream failures are checked even when management outer HTTP succeeds', () => {
@@ -51,10 +51,22 @@ test('account selection matches UI and token substitution remains server-side', 
 });
 
 test('captured fallback is explicitly marked rather than presented as live', () => {
-  const account={account:'old@example.org',source:'captured',signals:{'X-Codex-Primary-Window-Minutes':'300','X-Codex-Primary-Used-Percent':'50'},quotaError:'usage HTTP 403'};
+  const account={account:'old@example.org',source:'captured',observedAt:'2030-01-01T00:00:00Z',signals:{'X-Codex-Primary-Window-Minutes':'300','X-Codex-Primary-Used-Percent':'50'},quotaError:'usage HTTP 403'};
   const cpa={ok:true,accounts:[account]};
   assert.ok(compactLine({ok:true},cpa).includes('50:-:-~'));
   const text=dashboardLines({ok:true},cpa).join('\n');
   assert.ok(text.includes('captured headers (may be stale)'));
+  assert.ok(text.includes(`observed ${new Date(account.observedAt).toLocaleString()}`));
+  assert.ok(text.includes('~ marks a captured fallback that may be stale.'));
   assert.ok(text.includes('Live quota unavailable: usage HTTP 403'));
+});
+
+test('fallback legend appears only for captured windows', () => {
+  const text = (account) => dashboardLines({enabled:false},{ok:true,accounts:[account]}).join('\n');
+  assert.ok(!text({account:'live@example.org',source:'live',windows:[{label:'5h',left:50}]}).includes('~ marks'));
+  const noWindows = text({account:'old@example.org',source:'captured',signals:{},quotaError:'usage HTTP 403'});
+  assert.ok(noWindows.includes('captured headers (may be stale)'));
+  assert.ok(noWindows.includes('Live quota unavailable: usage HTTP 403'));
+  assert.ok(!noWindows.includes('~ marks'));
+  assert.ok(text({account:'old@example.org',source:'captured',windows:[{label:'5h'}]}).includes('~ marks'));
 });
